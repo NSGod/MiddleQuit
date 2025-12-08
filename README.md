@@ -11,6 +11,8 @@ If the stock icon in the top bar bothers you, let me know and I'll bother to mak
 ## Installation
 When you first open the app, it will ask you to enable Accessibility permissions. This is standard for apps like these, so they can interfere with regular input processes. After enabling, quit and restart the app.
 
+If you choose to download and run the pre-built app, when initially opening it, you will need to manually allow it to run (Apple could not verify “MiddleQuit.app” is free of malware that may harm your Mac or compromise your privacy.) by going to System Settings -> Privacy & Security -> Scroll down to 'Security' and allow it there. 
+
 I'm not completely familiar with sharing macOS apps, so if you have any issues installing, open an issue and hopefully we can work through it together. 
 
 ##
