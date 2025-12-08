@@ -22,3 +22,5 @@ I'm not completely familiar with sharing macOS apps, so if you have any issues i
 
 ## Don't trust me?
 I don't blame you! I'm just a random guy on the internet who vibe coded a Mac app. If you prefer, build the app yourself in Xcode after ensuring there is no pesky code inside. 😄
+
+https://github.com/user-attachments/assets/b492be2e-e48f-4cf7-b7c3-b596e24f8a73
