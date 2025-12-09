@@ -27,8 +27,13 @@ final class EventTapManager {
     // Public read-only: whether this tap can swallow events (depends on creation mode)
     private(set) var canSwallow = false
 
-    func start(handler: @escaping MiddleClickHandler) {
+    // Accessor for the current activation mode (injected so changes are live)
+    private var activationModeProvider: (() -> Preferences.ActivationMode)?
+
+    func start(activationMode: @escaping () -> Preferences.ActivationMode,
+               handler: @escaping MiddleClickHandler) {
         self.handler = handler
+        self.activationModeProvider = activationMode
 
         // Listen only for middle (other) mouse clicks, down and up.
         let mask =
@@ -83,6 +88,11 @@ final class EventTapManager {
                         return Unmanaged.passUnretained(event)
                     }
 
+                    // Check activation mode against current modifier flags
+                    if !manager.matchesActivationMode(event: event) {
+                        return Unmanaged.passUnretained(event)
+                    }
+
                     let loc = event.location
                     if let shouldConsume = manager.handler?(loc), shouldConsume, manager.canSwallow {
                         manager.swallowNextOtherMouseUp = true
@@ -113,6 +123,28 @@ final class EventTapManager {
         return false
     }
 
+    private func matchesActivationMode(event: CGEvent) -> Bool {
+        let flags = event.flags
+        let mode = activationModeProvider?() ?? .none
+
+        switch mode {
+        case .none:
+            // Require no primary modifiers (ignore caps lock, numeric pad, function)
+            return !flags.contains(.maskCommand)
+                && !flags.contains(.maskAlternate)
+                && !flags.contains(.maskControl)
+                && !flags.contains(.maskShift)
+        case .command:
+            return flags.contains(.maskCommand)
+        case .option:
+            return flags.contains(.maskAlternate)
+        case .control:
+            return flags.contains(.maskControl)
+        case .shift:
+            return flags.contains(.maskShift)
+        }
+    }
+
     func stop() {
         if let tap = eventTap {
             CGEvent.tapEnable(tap: tap, enable: false)
@@ -125,5 +157,7 @@ final class EventTapManager {
         handler = nil
         swallowNextOtherMouseUp = false
         canSwallow = false
+        activationModeProvider = nil
     }
 }
+

@@ -13,20 +13,31 @@ struct MiddleQuitApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
-        // No default window at launch; keep only a hidden Settings scene.
+        // Provide a real Settings window with a toggle for the menu bar icon
         Settings {
-            EmptyView()
+            SettingsView(
+                preferences: appDelegate.preferences,
+                onToggleShowIcon: { show in
+                    appDelegate.applyStatusItemVisibility(show: show)
+                }
+            )
         }
     }
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let preferences = Preferences()
+    // Make preferences internal so SettingsView can access it via appDelegate
+    let preferences = Preferences()
     private let eventTapManager = EventTapManager()
     private let dockHelper = DockAccessibilityHelper()
     private let quitController = QuitController()
     private let launchAtLogin = LaunchAtLoginManager()
     private var statusController: StatusItemController!
+
+    // Polling timer to detect when AX trust flips to true after prompting
+    private var axPollingTimer: Timer?
+    // Guard to avoid starting the tap twice
+    private var hasStartedEventTap = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusController = StatusItemController(
@@ -35,7 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.applyStatusItemVisibility(show: show)
             },
             onOpenAccessibility: { [weak self] in
-                self?.presentAXRelaunchDialogThenOpenSettings()
+                self?.promptForAccessibilityAndAutoStart()
             },
             onToggleLaunchAtLogin: { [weak self] in
                 guard let self else { return }
@@ -64,6 +75,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             isLaunchAtLoginEnabled: { [weak self] in
                 return self?.launchAtLogin.isEnabled ?? false
             },
+            getActivationMode: { [weak self] in
+                self?.preferences.activationMode ?? .none
+            },
+            onSetActivationMode: { [weak self] mode in
+                guard let self else { return }
+                self.preferences.activationMode = mode
+                // EventTapManager reads mode dynamically
+            },
             onQuit: {
                 NSApp.terminate(nil)
             }
@@ -73,34 +92,83 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ensureAccessibilityAndStart()
     }
 
-    private func presentAXRelaunchDialogThenOpenSettings() {
+    // MARK: - Accessibility flow (Option C)
+
+    // Show the system-managed AX prompt and auto-start when trust becomes true.
+    private func promptForAccessibilityAndAutoStart() {
         NSApp.activate(ignoringOtherApps: true)
 
         let alert = NSAlert()
-        alert.messageText = "Accessibility Permission Required"
-        alert.informativeText = "MiddleQuit needs Accessibility permission to handle mouse clicks. After enabling the permission in System Settings, please quit and relaunch the app."
+        alert.messageText = "Accessibility Permission"
+        alert.informativeText = "MiddleQuit needs Accessibility permission to handle mouse clicks. macOS will show a prompt. After allowing, MiddleQuit will become active automatically."
         alert.alertStyle = .informational
-        alert.addButton(withTitle: "Open Settings")
+        alert.addButton(withTitle: "Continue")
         alert.addButton(withTitle: "Cancel")
         let response = alert.runModal()
-
         guard response == .alertFirstButtonReturn else { return }
 
-        // Trigger the standard AX prompt (if needed) and open the proper System Settings pane.
         DockAccessibilityHelper.requestAXPermissionIfNeeded()
+        beginAXTrustPolling(timeout: 30.0, interval: 0.5)
+    }
+
+    private func beginAXTrustPolling(timeout: TimeInterval, interval: TimeInterval) {
+        axPollingTimer?.invalidate()
+
+        if DockAccessibilityHelper.isAXEnabled() {
+            ensureAccessibilityAndStart()
+            return
+        }
+
+        let deadline = Date().addingTimeInterval(timeout)
+
+        axPollingTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] timer in
+            guard let self else { return }
+            if DockAccessibilityHelper.isAXEnabled() {
+                timer.invalidate()
+                self.axPollingTimer = nil
+                self.ensureAccessibilityAndStart()
+            } else if Date() >= deadline {
+                timer.invalidate()
+                self.axPollingTimer = nil
+                self.offerAccessibilitySettingsFallback()
+            }
+        }
+
+        RunLoop.main.add(axPollingTimer!, forMode: .common)
+    }
+
+    private func offerAccessibilitySettingsFallback() {
+        let fallback = NSAlert()
+        fallback.messageText = "Accessibility Not Enabled"
+        fallback.informativeText = "You can enable Accessibility for MiddleQuit in System Settings. Would you like to open it now?"
+        fallback.alertStyle = .warning
+        fallback.addButton(withTitle: "Open Settings")
+        fallback.addButton(withTitle: "Cancel")
+        let result = fallback.runModal()
+        guard result == .alertFirstButtonReturn else { return }
+
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
         }
     }
 
+    // MARK: - Event tap lifecycle
+
     private func ensureAccessibilityAndStart() {
         guard DockAccessibilityHelper.isAXEnabled() else {
-            // AX not enabled; wait for user to enable and relaunch.
             return
         }
+        guard !hasStartedEventTap else {
+            return
+        }
+        hasStartedEventTap = true
 
-        // Start the event tap.
-        eventTapManager.start { [weak self] point in
+        // Rebuild menu so the "Open Accessibility Settings" item disappears
+        statusController.rebuildMenu()
+
+        eventTapManager.start(activationMode: { [weak self] in
+            self?.preferences.activationMode ?? .none
+        }) { [weak self] point in
             guard let self else { return false }
             if let pid = self.dockHelper.pidForDockTile(at: point) {
                 self.quitController.gracefulQuit(pid: pid)
@@ -110,7 +178,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func applyStatusItemVisibility(show: Bool) {
+    func applyStatusItemVisibility(show: Bool) {
         if show {
             statusController.show()
             NSApp.setActivationPolicy(.accessory) // menu bar only
@@ -121,6 +189,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        axPollingTimer?.invalidate()
         eventTapManager.stop()
     }
 }

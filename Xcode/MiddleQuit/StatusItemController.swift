@@ -16,17 +16,25 @@ final class StatusItemController: NSObject {
     private let isLaunchAtLoginEnabled: () -> Bool
     private let onQuit: () -> Void
 
+    // New: callback to change activation mode
+    private let onSetActivationMode: (Preferences.ActivationMode) -> Void
+    private let getActivationMode: () -> Preferences.ActivationMode
+
     init(preferences: Preferences,
          onToggleShowIcon: @escaping (Bool) -> Void,
          onOpenAccessibility: @escaping () -> Void,
          onToggleLaunchAtLogin: @escaping () -> Void,
          isLaunchAtLoginEnabled: @escaping () -> Bool,
+         getActivationMode: @escaping () -> Preferences.ActivationMode,
+         onSetActivationMode: @escaping (Preferences.ActivationMode) -> Void,
          onQuit: @escaping () -> Void) {
         self.preferences = preferences
         self.onToggleShowIcon = onToggleShowIcon
         self.onOpenAccessibility = onOpenAccessibility
         self.onToggleLaunchAtLogin = onToggleLaunchAtLogin
         self.isLaunchAtLoginEnabled = isLaunchAtLoginEnabled
+        self.getActivationMode = getActivationMode
+        self.onSetActivationMode = onSetActivationMode
         self.onQuit = onQuit
         super.init()
     }
@@ -58,6 +66,23 @@ final class StatusItemController: NSObject {
                                       keyEquivalent: "")
         showIconItem.target = self
         menu.addItem(showIconItem)
+
+        // Activation submenu
+        let activationSubmenu = NSMenu()
+        let currentMode = getActivationMode()
+
+        for mode in Preferences.ActivationMode.allCases {
+            let title = mode.displayName
+            let subItem = NSMenuItem(title: title, action: #selector(selectActivationMode(_:)), keyEquivalent: "")
+            subItem.representedObject = mode.rawValue
+            subItem.state = (mode == currentMode) ? .on : .off
+            subItem.target = self
+            activationSubmenu.addItem(subItem)
+        }
+
+        let activationItem = NSMenuItem(title: "Activation", action: nil, keyEquivalent: "")
+        activationItem.submenu = activationSubmenu
+        menu.addItem(activationItem)
 
         // Only show Accessibility Settings if not yet enabled.
         if !DockAccessibilityHelper.isAXEnabled() {
@@ -100,4 +125,12 @@ final class StatusItemController: NSObject {
     @objc private func quitApp() {
         onQuit()
     }
+
+    @objc private func selectActivationMode(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let mode = Preferences.ActivationMode(rawValue: raw) else { return }
+        onSetActivationMode(mode)
+        rebuildMenu()
+    }
 }
+
