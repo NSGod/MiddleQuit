@@ -1,0 +1,37 @@
+name: xcode
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 26.1
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26.1"
+
+      - name: Build
+        run: |
+          xcodebuild \
+            -project Xcode/MiddleQuit.xcodeproj \
+            -scheme MiddleQuit \
+            -configuration Release \
+            -sdk macosx \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      # - name: Test
+      #   run: |
+      #     xcodebuild \
+      #       -project Xcode/MiddleQuit.xcodeproj \
+      #       -scheme MiddleQuit \
+      #       -destination 'platform=macOS' \
+      #       CODE_SIGNING_ALLOWED=NO \
+      #       test
