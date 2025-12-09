@@ -16,6 +16,6 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Build
-      run: xcodebuild build -v
+      run: xcodebuild -scheme MiddleQuit
     - name: Run tests
-      run: xcodetest test -v
+      run: xcodetest -scheme MiddleQuit
